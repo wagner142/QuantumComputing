@@ -1,0 +1,74 @@
+import matplotlib.pyplot as plt
+import numpy as np
+from qiskit import QuantumCircuit, Aer, execute
+from qiskit.visualization import plot_bloch_multivector, plot_state_city, plot_histogram
+from qiskit.quantum_info import Statevector
+from qiskit.providers.aer.noise import NoiseModel
+from qiskit.transpiler.passes import RemoveBarriers
+
+n_qubits = 4
+marked_state = '1101'  # estado objetivo
+
+# ---------------------
+# Oracle que marca el estado '1101'
+oracle = QuantumCircuit(n_qubits, name="Oracle")
+oracle.x(0)
+oracle.x(2)
+oracle.h(3)
+oracle.mcx([0, 1, 2], 3)  # multi-control X
+oracle.h(3)
+oracle.x(0)
+oracle.x(2)
+oracle_gate = oracle.to_gate(label="Oracle")
+
+# ---------------------
+# 🪞 3. Difusión (inversión sobre la media)
+diffuser = QuantumCircuit(n_qubits, name="Diffuser")
+diffuser.h(range(n_qubits))
+diffuser.x(range(n_qubits))
+diffuser.h(n_qubits - 1)
+diffuser.mcx(list(range(n_qubits - 1)), n_qubits - 1)
+diffuser.h(n_qubits - 1)
+diffuser.x(range(n_qubits))
+diffuser.h(range(n_qubits))
+diffuser_gate = diffuser.to_gate(label="Diffuser")
+
+grover = QuantumCircuit(n_qubits, n_qubits)
+grover.h(range(n_qubits))
+grover.append(oracle_gate, range(n_qubits))
+grover.append(diffuser_gate, range(n_qubits))
+grover.measure(range(n_qubits), range(n_qubits))
+
+# Visualizar el circuito
+grover.draw(output='mpl')
+plt.show()
+
+sv_simulator = Aer.get_backend('statevector_simulator')
+grover_sv = QuantumCircuit(n_qubits)
+grover_sv.h(range(n_qubits))
+grover_sv.append(oracle_gate, range(n_qubits))
+grover_sv.append(diffuser_gate, range(n_qubits))
+job = execute(grover_sv, sv_simulator)
+statevector = job.result().get_statevector()
+
+# Mostrar estado final
+plot_state_city(statevector, title="Estado cuántico final")
+plt.show()
+
+# Mostrar esfera de Bloch (primer qubit)
+plot_bloch_multivector(statevector, title="Esfera de Bloch (todos los qubits)")
+plt.show()
+
+qasm_simulator = Aer.get_backend('qasm_simulator')
+# Ruido básico del simulador
+noise_model = NoiseModel.from_backend(qasm_simulator)
+# Ejecutar con y sin ruido
+job_no_noise = execute(grover, qasm_simulator, shots=1024)
+job_noise = execute(grover, qasm_simulator, noise_model=noise_model, shots=1024)
+
+counts_no_noise = job_no_noise.result().get_counts()
+counts_noise = job_noise.result().get_counts()
+
+# Visualización de resultados
+plot_histogram([counts_no_noise, counts_noise], legend=["Ideal", "Con ruido"], title="Resultado de Grover")
+plt.show()
